@@ -1,8 +1,8 @@
-use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::hal::modem::Modem;
-use esp_idf_svc::hal::peripheral;
 use esp_idf_svc::hal::peripherals::Peripherals;
-use esp_idf_svc::mqtt::client::*;
+use esp_idf_svc::hal::gpio::*;
+
+use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::sys::EspError;
 use esp_idf_svc::wifi::*;
@@ -28,7 +28,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
 
+    // Setup hardware
     let peripherals = Peripherals::take().unwrap();
+    let mut pin = PinDriver::input(peripherals.pins.gpio20)?; //Button
+    pin.set_pull(Pull::Up)?;
+
+    // WIFI
     let sys_loop = EspSystemEventLoop::take().unwrap();
     let nvs = EspDefaultNvsPartition::take().unwrap();
 
@@ -69,18 +74,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         log::info!("Retrying in {RETRY_DELAY_MS}ms... ({retries}/{MAX_RETRIES})");
-        std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
+        sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
     }
 
-    light_toggle_with_lib();
-    // light_toggle();
+    let bulb = YeelightClient::connect("192.168.1.171:55443").unwrap();
+
+    loop {
+        match pin.get_level() {
+            Level::High => log::info!("HIGH"),
+            Level::Low  => {
+                if let Err(e) = bulb.toggle() {
+                    log::warn!("Toggle failed: {e}")
+                }
+                sleep(std::time::Duration::from_millis(300)); //Delay to not trigger multiple times
+            },
+        }
+
+        sleep(std::time::Duration::from_millis(100));
+    }
 
     log::info!("--EOP--");
 
     Ok(())
-}
-
-fn light_toggle_with_lib() {
-    let bulb = YeelightClient::connect("192.168.1.171:55443").unwrap();
-    bulb.toggle().unwrap();
 }
