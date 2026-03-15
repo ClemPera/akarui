@@ -105,17 +105,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         //Potentiometer read:
         let pot_val = adc.read(&mut pot_pin)?;
-        let mut brightness = ((pot_val as u64 * 100) / 3100) as u8;
+
+        // Calculate brightness from row pot val and clamp min val to 1
+        let brightness = (((pot_val as u64 * 100) / 3100) as u8).max(1);
         log::info!("{}", brightness);
-        if brightness != old_brightness {
-            if brightness <= 0 {
-                brightness = 1;
-            }
 
+        //TODO: maybe check value that the light gives instead of old_brightness
+        //Handling this like that to avoid inbetween values since it's voltage
+        if brightness.abs_diff(old_brightness) > 1 {
             bulb.set_brightness(brightness, Transition::Smooth(300)).unwrap();
-
-            old_brightness = brightness;
         }
+        
+        old_brightness = brightness;
 
         sleep(std::time::Duration::from_millis(100));
     }
