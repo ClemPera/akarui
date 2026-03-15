@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bulb = YeelightClient::connect("192.168.1.171:55443").unwrap();
 
     // Main loop
-    let mut old_pot_val = 0;
+    let mut old_brightness = 0;
     loop {
         // Button push
         match button_pin.get_level() {
@@ -105,16 +105,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         //Potentiometer read:
         let pot_val = adc.read(&mut pot_pin)?;
-        log::info!("{}", pot_val);
-        if pot_val != old_pot_val {
-            let mut brightness = ((pot_val as u64 * 100) / 3100) as u8;
+        let mut brightness = ((pot_val as u64 * 100) / 3100) as u8;
+        log::info!("{}", brightness);
+        if brightness != old_brightness {
             if brightness <= 0 {
                 brightness = 1;
             }
 
             bulb.set_brightness(brightness, Transition::Smooth(300)).unwrap();
 
-            old_pot_val = pot_val;
+            old_brightness = brightness;
         }
 
         sleep(std::time::Duration::from_millis(100));
