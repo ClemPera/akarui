@@ -1,17 +1,17 @@
-use esp_idf_svc::hal::modem::Modem;
+use esp_idf_svc::hal::adc::oneshot::config::AdcChannelConfig;
+use esp_idf_svc::hal::adc::oneshot::{AdcChannelDriver, AdcDriver};
 use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::hal::gpio::*;
+use esp_idf_svc::hal::adc::attenuation::DB_11;
 
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
-use esp_idf_svc::sys::EspError;
 use esp_idf_svc::wifi::*;
 
 use std::time::Duration;
-use std::io::{BufReader, BufWriter, Read, Write};
-use std::net::TcpStream;
 use std::thread::sleep;
-use sakura::{YeelightClient, Transition, PowerMode};
+
+use sakura::{YeelightClient, Transition};
 
 #[toml_cfg::toml_config]
 pub struct Config {
@@ -30,8 +30,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Setup hardware
     let peripherals = Peripherals::take().unwrap();
-    let mut pin = PinDriver::input(peripherals.pins.gpio20)?; //Button
-    pin.set_pull(Pull::Up)?;
+    let mut button_pin = PinDriver::input(peripherals.pins.gpio20)?;
+    let adc = AdcDriver::new(peripherals.adc1)?;
+
+    let adc_config = AdcChannelConfig {
+        attenuation: DB_11,
+        ..Default::default()
+    };
+
+    let mut pot_pin = AdcChannelDriver::new(&adc, peripherals.pins.gpio4, &adc_config)?;
+
+    button_pin.set_pull(Pull::Up)?;
 
     // WIFI
     let sys_loop = EspSystemEventLoop::take().unwrap();
@@ -77,10 +86,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
     }
 
+    // Init light
     let bulb = YeelightClient::connect("192.168.1.171:55443").unwrap();
 
+    // Main loop
+    let mut old_pot_val = 0;
     loop {
-        match pin.get_level() {
+        // Button push
+        match button_pin.get_level() {
             Level::High => log::info!("HIGH"),
             Level::Low  => {
                 if let Err(e) = bulb.toggle() {
@@ -90,10 +103,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         }
 
+        //Potentiometer read:
+        let pot_val = adc.read(&mut pot_pin)?;
+        log::info!("{}", pot_val);
+        if pot_val != old_pot_val {
+            let mut brightness = ((pot_val as u64 * 100) / 3100) as u8;
+            if brightness <= 0 {
+                brightness = 1;
+            }
+
+            bulb.set_brightness(brightness, Transition::Smooth(300)).unwrap();
+
+            old_pot_val = pot_val;
+        }
+
         sleep(std::time::Duration::from_millis(100));
     }
 
-    log::info!("--EOP--");
+    log::warn!("--EOP--");
 
     Ok(())
 }
